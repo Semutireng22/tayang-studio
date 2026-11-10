@@ -1,4 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { captureAiApiCheck, registerAiAgent, startAiGeneration } from '@/lib/analytics';
 import type {
   AgentId,
   ApiCheck,
@@ -42,7 +43,17 @@ export const apiStatus = () => invoke<ApiStatus>('api_status');
 /** Lists the models at `baseUrl`, which checks the key too; no `key` checks the saved one. */
 export const apiCheck = (baseUrl: string, key: string | null) => invoke<ApiCheck>('api_check', { baseUrl, key });
 /** One real one-token call with `model` before saving; no `key` uses the saved one. */
-export const apiTry = (baseUrl: string, key: string | null, model: string) => invoke<ApiCheck>('api_try', { baseUrl, key, model });
+export const apiTry = async (baseUrl: string, key: string | null, model: string) => {
+  const startedAt = Date.now();
+  try {
+    const result = await invoke<ApiCheck>('api_try', { baseUrl, key, model });
+    captureAiApiCheck(model, startedAt, result.ok);
+    return result;
+  } catch (error) {
+    captureAiApiCheck(model, startedAt, false);
+    throw error;
+  }
+};
 export const apiReachable = (baseUrl: string) => invoke<boolean>('api_reachable', { baseUrl });
 /** Saves the provider (and the key, when given) and makes Your API the default agent. */
 export const apiSave = (provider: ApiProvider, key: string | null) => invoke<Settings>('api_save', { provider, key });
@@ -162,11 +173,14 @@ export const setJobsArchived = (ids: string[], archived: boolean) => invoke<void
 // ---- agent ----
 /** Resolves true when Claude started without the Tayang plugin: send it the skills as text too. */
 export const agentStart = (chatId: string, agentId: AgentId, auto?: boolean) =>
-  invoke<boolean>('agent_start', auto === undefined ? { chatId, agentId } : { chatId, agentId, auto });
+  invoke<boolean>('agent_start', auto === undefined ? { chatId, agentId } : { chatId, agentId, auto }).then((result) => {
+    registerAiAgent(chatId, agentId);
+    return result;
+  });
 /** Auto mode for the running session: the agent runs commands without asking. */
 export const agentSetAuto = (chatId: string, on: boolean) => invoke<void>('agent_set_auto', { chatId, on });
 export const agentPrompt = (chatId: string, parts: MessagePart[]) =>
-  invoke<void>('agent_prompt', { chatId, parts });
+  invoke<void>('agent_prompt', { chatId, parts }).then(() => startAiGeneration(chatId));
 export const agentCancel = (chatId: string) => invoke<void>('agent_cancel', { chatId });
 export const agentStop = (chatId: string) => invoke<void>('agent_stop', { chatId });
 export const agentRespondPermission = (requestId: string, optionId: string | null) =>

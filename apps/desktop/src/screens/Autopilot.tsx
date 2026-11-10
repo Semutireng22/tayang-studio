@@ -6,6 +6,7 @@ import { Button } from '@/components/Button';
 import { Oyen } from '@/components/Oyen';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { frequencyLabel, planSlots, slotTime } from '@/lib/autopilot';
+import { track } from '@/lib/analytics';
 import { startAutopilotChat } from '@/lib/autopilotChat';
 import { canStopNow, notifyAutopilotChanged, onAutopilotChanged, stopNow, useCanStopNow } from '@/lib/autopilotHooks';
 import { calendarState } from '@/lib/calendarState';
@@ -206,7 +207,11 @@ function AutopilotCard({
           variant="ghost"
           className={ACTION}
           aria-label={act(paused ? 'resume' : 'pause')}
-          onClick={() => void job(() => setAutopilotStatus(a.id, paused ? 'active' : 'paused'))}
+          onClick={() => void job(async () => {
+            const status = paused ? 'active' : 'paused';
+            await setAutopilotStatus(a.id, status);
+            track('autopilot_status_changed', { status });
+          })}
         >
           {paused ? <Play aria-hidden="true" strokeWidth={1.5} /> : <Pause aria-hidden="true" strokeWidth={1.5} />}
           {paused ? t('autopilot.resume') : t('autopilot.pause')}
@@ -239,6 +244,7 @@ function AutopilotCard({
                   // A video being made for it would otherwise go on with nothing left to stop it.
                   if (making && canStopNow()) await stopNow(making);
                   await deleteAutopilot(a.id);
+                  track('autopilot_deleted', { was_active: !paused, had_running_video: !!making });
                   onDeleted?.();
                 });
                 setBusy(false);
