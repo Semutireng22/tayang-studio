@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { AGENT_NAMES } from '@/lib/agents';
+import { track } from '@/lib/analytics';
 import {
   dayModeOf,
   dayName,
@@ -298,6 +299,15 @@ export function AutopilotWizard({ id, draft, now = new Date() }: { id?: string; 
     };
     try {
       const saved = await saveAutopilot(input);
+      track('autopilot_saved', {
+        is_new: !editing,
+        agent: form.agentId,
+        language: form.language,
+        frequency_type: input.frequency.kind,
+        videos_per_day: form.times.length,
+        review_enabled: form.review,
+        posting_mode: input.posting,
+      });
       touched.current = false;
       useApp.getState().setLeaveGuard(null);
       notifyAutopilotChanged();

@@ -8,7 +8,7 @@ import { setUiLanguage } from '@/i18n';
 import { systemLanguage } from '@/lib/language';
 import { getSettings, getSystemInfo, syncStyles, updateSettings } from '@/lib/ipc';
 import { getVersion } from '@tauri-apps/api/app';
-import { startAnalytics } from '@/lib/analytics';
+import { identifyAccount, startAiObservability, startAnalytics } from '@/lib/analytics';
 import { runBillingReminder } from '@/lib/billingReminder';
 import { onTick, startScheduler } from '@/lib/scheduler';
 import { recheckDoneBuildJobs, settleLateRenders } from '@/lib/buildJobs';
@@ -33,6 +33,7 @@ import { Requirements } from '@/screens/onboarding/Requirements';
 import { AccountStep } from '@/screens/onboarding/AccountStep';
 import { Welcome } from '@/screens/onboarding/Welcome';
 import { useApp, type Route } from '@/state/app';
+import { useAuth } from '@/state/auth';
 import { SIDEBAR, useFittedLayout, useLayout, useSidebarShortcut, useWindowWidthSync } from '@/state/layout';
 import { refreshJobs } from '@/state/jobs';
 
@@ -103,6 +104,16 @@ export default function App() {
     load();
   }, [load]);
 
+  // Establish the account boundary at launch, rather than waiting for an account-only screen.
+  useEffect(() => {
+    void useAuth.getState().init();
+  }, []);
+
+  // One listener ends traces for every ACP prompt, including background workers while the window is hidden.
+  useEffect(() => {
+    startAiObservability();
+  }, []);
+
   // Product analytics follow the "share anonymous stats" setting (see lib/analytics).
   const share = settings?.shareInstallStats;
   const installId = settings?.installId ?? '';
@@ -114,7 +125,11 @@ export default function App() {
       Promise.resolve().then(() => getVersion()).catch(() => undefined),
       Promise.resolve().then(() => getSystemInfo()).then((s) => s.os).catch(() => undefined),
     ]).then(([appVersion, os]) => {
-      if (alive) startAnalytics({ share, installId, appVersion, os, uiLanguage });
+      if (!alive) return;
+      startAnalytics({ share, installId, appVersion, os, uiLanguage });
+      // Auth may resolve before analytics starts; identify it here so exceptions and events inherit it.
+      const status = useAuth.getState().status;
+      if (status?.signedIn && status.account) identifyAccount(status.account.id, status.account.plan);
     });
     return () => {
       alive = false;
